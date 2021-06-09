@@ -28,6 +28,8 @@ namespace craigslist.org
         public HttpCaller HttpCaller = new HttpCaller();
         public Dictionary<string, int> _sheetsIds = new Dictionary<string, int>();
         Random _rnd = new Random();
+
+        private List<Category> _previousData=new List<Category>();
         //public static SheetsService Service;
         private readonly List<object> _headers = new List<object>
         {
@@ -44,103 +46,108 @@ namespace craigslist.org
             InitializeComponent();
         }
 
+        private async Task<List<Category>> GetCategories()
+        {
+            var urlCategories = File.ReadAllLines(inputI.Text);
+            var categories = new List<Category>();
+            foreach (var urlCategory in urlCategories)
+            {
+                if (urlCategory.Trim() == "")
+                {
+                    continue;
+                }
+                var doc = await HttpCaller.GetDoc(urlCategory);
+                var categoryName = doc.DocumentNode.SelectSingleNode("//select[@id='areaAbb']/option[1]").InnerText +
+                                   "/" + doc.DocumentNode.SelectSingleNode("//select[@id='catAbb']/option[@selected]").InnerText +
+                                   "/" + doc.DocumentNode.SelectSingleNode("//select[@id='subcatAbb']/option[@selected]")
+                                       .InnerText;
+                var realEstates = doc.DocumentNode.SelectNodes("//li[@data-pid]/div");
+                if (realEstates == null)
+                {
+                    ErrorLog($"the following real estate category is empty ==> {urlCategory}");
+                    continue;
+                }
+
+                var urls = await GetPages(urlCategory);
+
+                var threads = int.Parse(threadsI.Text);
+                var tpl = new TransformBlock<string, List<RealEstate>>(async x => await ScrapeRealEstateInfo(x).ConfigureAwait(false),
+                    new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = threads });
+
+                foreach (var url in urls)
+                {
+                    tpl.Post(url);
+                }
+
+                var category = new Category { CategoryName = categoryName };
+                foreach (var url in urls)
+                {
+                    var listOfRealEstate = await tpl.ReceiveAsync().ConfigureAwait(false);
+                    if (listOfRealEstate != null)
+                    {
+                        category.RealEstate.AddRange(listOfRealEstate);
+                    }
+                }
+                categories.Add(category);
+
+            }
+            return categories;
+        }
+
+        private bool IsChanged(Category category)
+        {
+            var oldCategory = _previousData.FirstOrDefault(x => x.CategoryName.Equals(category.CategoryName));
+            if (oldCategory == null) return true;
+            var newJson = JsonConvert.SerializeObject(category);
+            var oldJson = JsonConvert.SerializeObject(oldCategory);
+            return !newJson.Equals(oldJson);
+        }
 
         private async Task MainWork()
         {
-
-
-
+            // var categories = await GetCategories();
+            //File.WriteAllText("js1.txt", JsonConvert.SerializeObject(categories, Formatting.Indented));
             var categories = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("js1.txt"));
-            //var isSheetExist = await GoogleSheetApiService.CheckIfSheetExist(GoogleSheetIdI.Text, categories.First().CategoryName.Replace(":", ""));
-            var urlCategories = File.ReadAllLines(inputI.Text);
-            //var categories = new List<Category>();
-            foreach (var urlCategory in urlCategories)
+
+            foreach (var category in categories)
             {
-                //if (urlCategory.Trim() == "")
-                //{
-                //    continue;
-                //}
-                //var doc = await HttpCaller.GetDoc(urlCategory);
-                //var categoryName = doc.DocumentNode.SelectSingleNode("//select[@id='areaAbb']/option[1]").InnerText +
-                //                   "/" + doc.DocumentNode.SelectSingleNode("//select[@id='catAbb']/option[@selected]").InnerText +
-                //                   "/" + doc.DocumentNode.SelectSingleNode("//select[@id='subcatAbb']/option[@selected]")
-                //                       .InnerText;
-                //var realEstates = doc.DocumentNode.SelectNodes("//li[@data-pid]/div");
-                //if (realEstates == null)
-                //{
-                //    ErrorLog($"the following real estate category is empty ==> {urlCategory}");
-                //    continue;
-                //}
-
-                //var urls = await GetPages(urlCategory);
-
-                //var threads = int.Parse(threadsI.Text);
-                //var tpl = new TransformBlock<string, List<RealEstate>>(async x => await ScrapeRealEstateInfo(x).ConfigureAwait(false),
-                //    new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = threads });
-
-                //foreach (var url in urls)
-                //{
-                //    tpl.Post(url);
-                //}
-
-                //var category = new Category { CategoryName = categoryName };
-                //foreach (var url in urls)
-                //{
-                //    var listOfRealEstate = await tpl.ReceiveAsync().ConfigureAwait(false);
-                //    if (listOfRealEstate != null)
-                //    {
-                //        category.RealEstate.AddRange(listOfRealEstate);
-                //    }
-                //}
-                //categories.Add(category);
-
-            }
-            //var json = JsonConvert.SerializeObject(categories, Formatting.Indented);
-            //File.WriteAllText("js1.txt", json);
-            //categories = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("json1.txt"));
-
-            foreach (var ctg in categories)
-            {
-                var values = new List<IList<object>>();
-
-                var categoryName = ctg.CategoryName.Replace(":", "");
-
+                var categoryName = category.CategoryName.Replace(":", "");
+                if (!IsChanged(category))
+                {
+                    continue;
+                }
 
                 try
                 {
-                    await GoogleSheetApiService.DeleteRows(GoogleSheetIdI.Text, categoryName,_sheetsIds[categoryName]);
+                    await GoogleSheetApiService.DeleteRows(GoogleSheetIdI.Text, categoryName, _sheetsIds[categoryName]);
                 }
                 catch (Exception)
                 {
 
                     var sheetId = await GoogleSheetApiService.CreateNewSheet(GoogleSheetIdI.Text, categoryName);
                     _sheetsIds[categoryName] = sheetId;
-                    values.Add(_headers);
+                }
+                finally
+                {
+                    File.WriteAllText("Sheets Ids.txt", JsonConvert.SerializeObject(_sheetsIds));
                 }
 
-              
-
-                //foreach (var realEstate in ctg.RealEstate)
-                //{
-                //    var obj = new List<object>
-                //    {
-                //        realEstate.Title,
-                //        realEstate.Price,
-                //        realEstate.Location,
-                //        realEstate.DateTime,
-                //        realEstate.Description,
-                //        realEstate.Url
-                //    };
-                //    values.Add(obj);
-                //    if (values.Count == 3000)
-                //    {
-                //        await GoogleSheetApiService.AppendData(values, GoogleSheetIdI.Text, categoryNmae);
-                //        values = new List<IList<object>>();
-                //    }
-                //}
-                await GoogleSheetApiService.AppendData(values, GoogleSheetIdI.Text, categoryName);
-
+                var data = PrepareData(category);
+                data.InsertRange(0, new List<IList<object>>() { _headers });
+                await GoogleSheetApiService.AppendData(data, GoogleSheetIdI.Text, categoryName);
             }
+
+            _previousData = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("js1.txt"));
+        }
+
+        private List<IList<object>> PrepareData(Category category)
+        {
+            var data = new List<IList<object>>();
+            foreach (var realEstate in category.RealEstate)
+            {
+                data.Add(new List<object>() { realEstate.Title, realEstate.Price, realEstate.Location, realEstate.DateTime, realEstate.Description, realEstate.Url });
+            }
+            return data;
         }
 
         private async Task<List<string>> GetPages(string urlCategory)

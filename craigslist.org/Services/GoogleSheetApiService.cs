@@ -43,7 +43,7 @@ namespace craigslist.org.Services
                 ApplicationName = ApplicationName,
             })
             {
-                HttpClient = 
+                HttpClient =
                 {
                     Timeout = TimeSpan.FromMinutes(5)
                 }
@@ -52,43 +52,21 @@ namespace craigslist.org.Services
 
         }
 
-        public static async Task<string> CreateNewSheet(string googleSheetId, string sheetName)
+        public static async Task<int> CreateNewSheet(string googleSheetId, string sheetName)
         {
-            var file = new BatchUpdateSpreadsheetResponse();
-            //try
-            //{
-            var addSheetRequest = new AddSheetRequest { Properties = new SheetProperties { Title = sheetName.Replace(":", "") } };
+            var addSheetRequest = new AddSheetRequest { Properties = new SheetProperties { Title = sheetName } };
             var batchUpdateSpreadsheetRequest = new BatchUpdateSpreadsheetRequest { Requests = new List<Request>() };
             batchUpdateSpreadsheetRequest.Requests.Add(new Request { AddSheet = addSheetRequest });
             var batchUpdateRequest = Service.Spreadsheets.BatchUpdate(batchUpdateSpreadsheetRequest, googleSheetId);
-            file = await batchUpdateRequest.ExecuteAsync();
-            return file.SpreadsheetId;
-            //}
-            //catch (Exception)
-            //{
-
-            //    await credential.RefreshTokenAsync(CancellationToken.None);
-            //    //Service = new SheetsService(new BaseClientService.Initializer()
-            //    //{
-            //    //    HttpClientInitializer = credential,
-            //    //    ApplicationName = ApplicationName,
-            //    //});
-            //    await CreateNewSheet(googleSheetId, sheetName);
-            //}
-            //return file.SpreadsheetId;
+            var file = await batchUpdateRequest.ExecuteAsync();
+            return file.Replies.First().AddSheet.Properties.SheetId.GetValueOrDefault();
         }
 
         public static async Task AppendData(List<IList<object>> values, string googleSheetId, string sheetName)
         {
-
-            //var range = await GetRange(googleSheetId, sheetName);
-            var range = sheetName.Replace(":", "");
-            range = range + "!A1:A";
-            var request =
-                Service.Spreadsheets.Values.Append(new ValueRange() { Values = values }, googleSheetId, range);
+            var request = Service.Spreadsheets.Values.Append(new ValueRange() { Values = values }, googleSheetId, $"{sheetName}!A1:A");
             request.InsertDataOption = SpreadsheetsResource.ValuesResource.AppendRequest.InsertDataOptionEnum.INSERTROWS;
             request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.RAW;
-            //request.ResponseDateTimeRenderOption
             await request.ExecuteAsync();
 
         }
@@ -170,41 +148,21 @@ namespace craigslist.org.Services
             return isExist;
         }
 
-        public static async Task DeleteRows(string googleSheetId, string sheetName, string sheetId)
+        public static async Task DeleteRows(string googleSheetId, string sheetName, int sheetId)
         {
-            var range = await GetRange(googleSheetId, sheetName);
-            var endIndex = 0;
-            var endIndexBuilder = new StringBuilder();
-            var x = range.IndexOf('!') + 2;
-            for (var i = x; i < range.Length; i++)
-            {
-                var ch = range[i];
-                if (char.IsDigit(ch))
-                {
-                    endIndexBuilder.Append(ch);
-                    continue;
-                }
-                break;
-            }
-
-            endIndex = int.Parse(endIndexBuilder.ToString());
             var request =
                 new Request
                 {
-                    DeleteDimension =
-                        new DeleteDimensionRequest
-                        {
-                            Range =
-                                new DimensionRange {  SheetId = sheetId, Dimension = "ROWS", StartIndex = 0, EndIndex = endIndex }
-                        }/*, DeleteRange = new DeleteRangeRequest { Range = new GridRange { } }*/
+                    UpdateCells = new UpdateCellsRequest
+                    {
+                        Range = new GridRange() { SheetId = sheetId },
+                        Fields = "*"
+                    }
                 };
             var requestContainer = new List<Request> { request };
             var deleteRequest = new BatchUpdateSpreadsheetRequest { Requests = requestContainer };
             var deletion = new SpreadsheetsResource.BatchUpdateRequest(Service, deleteRequest, googleSheetId);
             await deletion.ExecuteAsync();
-
         }
-
-
     }
 }
