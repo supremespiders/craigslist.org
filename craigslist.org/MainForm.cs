@@ -29,7 +29,7 @@ namespace craigslist.org
         public Dictionary<string, int> _sheetsIds = new Dictionary<string, int>();
         Random _rnd = new Random();
 
-        private List<Category> _previousData=new List<Category>();
+        private List<Category> _previousData = new List<Category>();
         //public static SheetsService Service;
         private readonly List<object> _headers = new List<object>
         {
@@ -56,7 +56,7 @@ namespace craigslist.org
                 {
                     continue;
                 }
-                var doc = await HttpCaller.GetDoc(urlCategory);
+                var doc = await HttpCaller.GetDoc(urlCategory, 5);
                 var categoryName = doc.DocumentNode.SelectSingleNode("//select[@id='areaAbb']/option[1]").InnerText +
                                    "/" + doc.DocumentNode.SelectSingleNode("//select[@id='catAbb']/option[@selected]").InnerText +
                                    "/" + doc.DocumentNode.SelectSingleNode("//select[@id='subcatAbb']/option[@selected]")
@@ -105,15 +105,16 @@ namespace craigslist.org
 
         private async Task MainWork()
         {
-            // var categories = await GetCategories();
-            //File.WriteAllText("js1.txt", JsonConvert.SerializeObject(categories, Formatting.Indented));
-            var categories = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("js1.txt"));
+            var categories = await GetCategories();
+            File.WriteAllText("js1.txt", JsonConvert.SerializeObject(categories, Formatting.Indented));
+            //  var categories = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("js1.txt"));
 
             foreach (var category in categories)
             {
                 var categoryName = category.CategoryName.Replace(":", "");
                 if (!IsChanged(category))
                 {
+                    Console.WriteLine($"Escaping {category.CategoryName}");
                     continue;
                 }
 
@@ -135,6 +136,7 @@ namespace craigslist.org
                 var data = PrepareData(category);
                 data.InsertRange(0, new List<IList<object>>() { _headers });
                 await GoogleSheetApiService.AppendData(data, GoogleSheetIdI.Text, categoryName);
+                Console.WriteLine($"writing {category.CategoryName}");
             }
 
             _previousData = JsonConvert.DeserializeObject<List<Category>>(File.ReadAllText("js1.txt"));
@@ -181,7 +183,7 @@ namespace craigslist.org
             try
             {
                 urlRealEstate = url;
-                doc = await HttpCaller.GetDoc(url);
+                doc = await HttpCaller.GetDoc(url, 5);
                 var realEstatesNodes = doc.DocumentNode.SelectNodes("//li[@data-pid]/div");
                 foreach (var realEstate in realEstatesNodes)
                 {
@@ -628,10 +630,17 @@ namespace craigslist.org
             do
             {
                 await GoogleSheetApiService.Credential();
-                await Task.Run(MainWork);
+                try
+                {
+                    await MainWork();
+                }
+                catch (Exception exception)
+                {
+                    ErrorLog($"Critical exception on cycle : {exception.ToString()}");
+                }
                 p += 1;
                 Display("Entries has been updated " + p + " times");
-                await Task.Delay(10000);
+                await Task.Delay(30000);
             } while (true);
         }
 
